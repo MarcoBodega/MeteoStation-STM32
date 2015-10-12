@@ -1,20 +1,7 @@
-STM32-Template
-==============
 
-A Build template for projects using the stm32vl discovery board, 
-CodeSourcery gnu toolchain, and the STM32F10x Standard Peripheral Library.
+This project implements a simple station for monitoring temperature, humidity and gas. 
+It just provide its output via serial consol UART interface (9600baud, no hw flow).
 
-To test:
+Temperature and Humidity are read in PWM Input mode from the DH11 sensor, while Methan level is read from MQ-2 sensor which provides an analogue outputs.
 
-   (1) install the toolchain and libarary.
-   (2) change the TOOLROOT and LIBROOT paths in Makefile.common
-   (3) cd to Demo
-   (4) type make
-
-To create new projects
-
-   (1) clone the Demo directory (name the directory appropriately)
-   (2) change TEMPLATEROOT in the cloned makefile to point to the 
-       template directory
-   (3) modify as needed, adding any needed library objects to the OBJ 
-       list in the Makefile
+This branch implements this project on the STM32VL discovery board from St-Microelectronics.
