@@ -25,7 +25,7 @@ struct Queue {
 
 
 static struct Queue UART1_TXq, UART1_RXq;
-
+static struct Queue UART2_TXq, UART2_RXq;
 
 static int QueueFull(struct Queue *q)
 {
@@ -200,7 +200,56 @@ int  uart_open (uint8_t uart, uint32_t baud, uint32_t flags)
 
     return 0;
   }
-  return 1;  // only handle UART2
+
+  if (uart == 2) {
+     // get things to a known state
+    USART_DeInit(USART2);
+    // Turn on clocks
+    //RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_USART2 | RCC_APB2Periph_AFIO, ENABLE);
+    // Configure NVIC
+    /* Configure the NVIC Preemption Priority Bits */
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_0);
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+
+    GPIO_PinRemapConfig(GPIO_Remap_USART2, DISABLE);
+    // Configure TX pin
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    // Configure RX pin
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    // Configure the UART
+    USART_StructInit(&USART_InitStructure);
+    USART_InitStructure.USART_BaudRate = baud;
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
+    USART_InitStructure.USART_StopBits = USART_StopBits_1;
+    USART_InitStructure.USART_Parity = USART_Parity_No;
+    USART_InitStructure.USART_Mode  = USART_Mode_Rx | USART_Mode_Tx;
+    USART_Init(USART2, &USART_InitStructure);
+    // Enable RX Interrupt.  TX interrupt enabled in send routine
+    USART_ClearITPendingBit(USART2, USART_IT_RXNE);
+    //disable Transmit Data Register empty interrupt
+    USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
+    //enable Receive Data register not empty interrupt
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
+    InitQueue(&UART2_RXq);
+    InitQueue(&UART2_TXq);
+    // Enable USART2
+    USART_Cmd(USART2, ENABLE);
+    return 0;
+  }
+
+
+  return 1; 
 }
 
 
@@ -209,7 +258,6 @@ int  uart_open (uint8_t uart, uint32_t baud, uint32_t flags)
 
 void USART1_IRQHandler(void)
 {
-	GPIO_WriteBit(GPIOA, GPIO_Pin_8, 1);
 	if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
 	{
 		uint8_t data;
@@ -248,8 +296,101 @@ void USART1_IRQHandler(void)
 			TxPrimed = 0;
 		}
 	}
-	GPIO_WriteBit(GPIOA, GPIO_Pin_8, 0);
 }
+
+void USART2_IRQHandler(void)
+{
+	if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
+	{
+		uint8_t data;
+		// clear the interrupt
+		USART_ClearITPendingBit(USART2, USART_IT_RXNE);
+		// buffer the data (or toss it if there's no room // Flow control is supposed to prevent this
+		data = USART_ReceiveData(USART2) & 0xff;
+		if (!Enqueue(&UART2_RXq, &data, 1))
+			RxOverflow = 1;
+	}
+	if(USART_GetITStatus(USART2, USART_IT_TXE) != RESET)
+	{
+		// Write one byte to the transmit data register
+		uint8_t data;
+		if (Dequeue(&UART2_TXq, &data, 1)) {
+			USART_SendData(USART2, data);
+		}
+		else {
+			// if we have nothing to send, disable the interrupt
+			// and wait for a kick
+			USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
+			TxPrimed = 0;
+		}
+	}
+}
+
+
+
+
+uint16_t uart_write(uint8_t uart, const uint8_t *buf, uint16_t nbyte)
+{
+	uint8_t data;
+	int i = 0;
+
+	if (uart == 1 && nbyte)
+	{
+		i = Enqueue(&UART1_TXq, buf, nbyte);
+
+		// if we added something and the Transmitter isn't working
+		// give it a kick by turning on the buffer empty interrupt
+		if (!TxPrimed)
+		{
+			TxPrimed = 1;
+
+			// This implementation guarantees that USART_IT_Config
+			// is not called simultaneously in the interrupt handler and here.
+			USART_ITConfig(USART1, USART_IT_TXE, ENABLE);
+		}
+	}
+	if (uart == 2 && nbyte)
+	{
+		i = Enqueue(&UART2_TXq, buf, nbyte);
+
+		// if we added something and the Transmitter isn't working
+		// give it a kick by turning on the buffer empty interrupt
+		if (!TxPrimed)
+		{
+			TxPrimed = 1;
+
+			// This implementation guarantees that USART_IT_Config
+			// is not called simultaneously in the interrupt handler and here.
+			USART_ITConfig(USART2, USART_IT_TXE, ENABLE);
+		}
+	}
+	return i;
+}
+
+uint16_t uart_read (uint8_t uart, uint8_t *buf, uint16_t nbyte)
+{
+	int i = 0;
+
+	if (uart == 1)
+	{
+		i = Dequeue(&UART1_RXq, buf, nbyte);
+
+		#ifdef HWFLOWCTRL
+		// If the queue has fallen below high water mark, enable nRTS
+
+		if (QueueAvail(&UART1_RXq) <= HIGH_WATER)
+			GPIO_WriteBit(GPIOA, GPIO_Pin_11, 0);
+		#endif
+	}
+	if (uart == 2)
+	{
+		i = Dequeue(&UART2_RXq, buf, nbyte);
+	}
+	return i;
+}
+
+
+
 
 
 /*
@@ -275,54 +416,6 @@ void USART1_IRQHandler(void)
 		  rx_index = 0;
 	}
 }*/
-
-
-
-
-uint16_t uart_write(uint8_t uart, const uint8_t *buf, uint16_t nbyte)
-{
-	uint8_t data;
-	int i = 0;
-
-	if (uart == 1 && nbyte)
-	{
-		i = Enqueue(&UART1_TXq, buf, nbyte);
-
-		// if we added something and the Transmitter isn't working
-		// give it a kick by turning on the buffer empty interrupt
-		if (!TxPrimed)
-		{
-			TxPrimed = 1;
-
-			// This implementation guarantees that USART_IT_Config
-			// is not called simultaneously in the interrupt handler and here.
-			USART_ITConfig(USART1, USART_IT_TXE, ENABLE);
-		}
-	}
-	return i;
-}
-
-uint16_t uart_read (uint8_t uart, uint8_t *buf, uint16_t nbyte)
-{
-	int i = 0;
-
-	if (uart == 1)
-	{
-		i = Dequeue(&UART1_RXq, buf, nbyte);
-
-		#ifdef HWFLOWCTRL
-		// If the queue has fallen below high water mark, enable nRTS
-
-		if (QueueAvail(&UART1_RXq) <= HIGH_WATER)
-			GPIO_WriteBit(GPIOA, GPIO_Pin_11, 0);
-		#endif
-	}
-
-	return i;
-}
-
-
-
 
 
 

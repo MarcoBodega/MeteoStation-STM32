@@ -42,7 +42,7 @@
 
 //#define myUSART USART1
 #define myUSART 1
-
+#define espUSART 2
 
 uint8_t buf[QUEUE_SIZE];
 uint8_t nbyte = 32; //size_t
@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
 {
 
 	RCC_APB2PeriphClockCmd (  RCC_APB2Periph_GPIOA  | RCC_APB2Periph_USART1 | RCC_APB2Periph_ADC1 |  RCC_APB2Periph_GPIOC | RCC_APB2Periph_AFIO, ENABLE);
-	RCC_APB1PeriphClockCmd ( RCC_APB1Periph_TIM3 , ENABLE );
+	RCC_APB1PeriphClockCmd ( RCC_APB1Periph_TIM3 | RCC_APB1Periph_USART2 , ENABLE );
 
 	// Configure the NVIC to enable interrupt channel TIM3_IRQn  with the
 	// highest priority (0 for both sub-priority and preemption priority)
@@ -168,10 +168,39 @@ int main(int argc, char* argv[])
 	TIM_Cmd (TIM3 , ENABLE ); 	// Enable the tick timer
 	TIM_ITConfig (TIM3 , TIM_IT_Update , ENABLE ); 	// Enable Timer Interrupt , enable timer
 
-
+	// open DEBUG console
 	uart_open(myUSART, 9600, 0);
 	uint8_t ri;
 	cmdi = 0;
+
+	// welcome
+	uart_write(myUSART, "Welcome to the MeteoStation\r\n", strlen("Welcome to the MeteoStation\r\n"));
+
+
+	// open esp8266 wifi uart	
+	uart_open(espUSART, 9600, 0);
+
+	// fw version
+	//   it will output the firmware revision number similar to: 0018000902-AI03.
+	//   000902 means firmware version 0.9.2, 0018 is the version level of the AT command support.
+	uart_write(espUSART, "AT+GMR\n", strlen("AT+GMR\n"));
+	uart_read(espUSART, buf, ri);
+	uart_write(myUSART, buf, strlen(buf));
+
+	// Access Point and STAtion
+	uart_write(espUSART, "AT+CWMODE=3\n", strlen("AT+CWMODE=3\n"));
+	uart_read(espUSART, buf, ri);
+	uart_write(myUSART, buf, strlen(buf));
+
+	// List Access Points
+	uart_write(espUSART, "AT+CWLAP\n", strlen("AT+CWLAP\n"));
+	uart_read(espUSART, buf, ri);
+	uart_write(myUSART, buf, strlen(buf));
+
+	// Join an Access Point
+	uart_write(espUSART, "AT+CWJAP=\"netbo-1\",\"asmassassina\"\n", strlen("AT+CWJAP=\"netbo-1\",\"asmassassina\"\n"));
+	uart_read(espUSART, buf, ri);
+	uart_write(myUSART, buf, strlen(buf));
 
 	// prompt
 	uart_write(myUSART, "# ", strlen("# "));
