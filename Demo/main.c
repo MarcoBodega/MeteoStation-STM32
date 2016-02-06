@@ -44,6 +44,9 @@
 #define myUSART 1
 #define espUSART 2
 
+#define WIFI_NET "MYNET"
+#define WIFI_PWD "MYPWD"
+
 uint8_t buf[QUEUE_SIZE];
 uint8_t nbyte = 32; //size_t
 
@@ -60,6 +63,8 @@ GPIO_InitTypeDef GPIO_InitStructure ;
 uint8_t getValueFromOnes(uint8_t start, uint8_t to);
 void ADC_Calibrate();
 
+uint8_t mode_conf_wifi = 0; // 1=get myUART commands
+void initWifi();
 
 // avoid newlib
 int strlen(char *s);
@@ -69,6 +74,8 @@ char *strcat(char *dest, const char *src) ;
 void get_dec_str (uint8_t* str, uint8_t len, uint32_t val);
 void itoa(char *buf, int base, int d);
 
+uint8_t ri;
+        
 int main(int argc, char* argv[])
 {
 
@@ -163,105 +170,130 @@ int main(int argc, char* argv[])
 	TIM_SelectSlaveMode(TIM3, TIM_SlaveMode_Reset); // Select the slave Mode: Reset Mode
 	TIM_SelectMasterSlaveMode(TIM3, TIM_MasterSlaveMode_Enable);	// Enable the Master/Slave Mode
 
+	
+	// open DEBUG console
+	uart_open(myUSART, 115200, 0);
+
+	// welcome
+	uart_write(myUSART, "\n\n\r############################\r\n", strlen("\n\n\r############################\r\n"));
+	uart_write(myUSART, "Welcome to the MeteoStation!\r\n", strlen("Welcome to the MeteoStation!\r\n"));
+	uart_write(myUSART, "############################\r\n", strlen("############################\r\n"));
+
+        //WIP
+        initWifi() ;
+        
 	GPIO_WriteBit(GPIOA, GPIO_Pin_6, Bit_RESET);
 
 	TIM_Cmd (TIM3 , ENABLE ); 	// Enable the tick timer
 	TIM_ITConfig (TIM3 , TIM_IT_Update , ENABLE ); 	// Enable Timer Interrupt , enable timer
 
-	// open DEBUG console
-	uart_open(myUSART, 9600, 0);
-	uint8_t ri;
-	cmdi = 0;
-
-	// welcome
-	uart_write(myUSART, "Welcome to the MeteoStation\r\n", strlen("Welcome to the MeteoStation\r\n"));
-
-
-	// open esp8266 wifi uart	
-	uart_open(espUSART, 9600, 0);
-
-	// fw version
-	//   it will output the firmware revision number similar to: 0018000902-AI03.
-	//   000902 means firmware version 0.9.2, 0018 is the version level of the AT command support.
-	uart_write(espUSART, "AT+GMR\n", strlen("AT+GMR\n"));
-	uart_read(espUSART, buf, ri);
-	uart_write(myUSART, buf, strlen(buf));
-
-	// Access Point and STAtion
-	uart_write(espUSART, "AT+CWMODE=3\n", strlen("AT+CWMODE=3\n"));
-	uart_read(espUSART, buf, ri);
-	uart_write(myUSART, buf, strlen(buf));
-
-	// List Access Points
-	uart_write(espUSART, "AT+CWLAP\n", strlen("AT+CWLAP\n"));
-	uart_read(espUSART, buf, ri);
-	uart_write(myUSART, buf, strlen(buf));
-
-	// Join an Access Point
-	uart_write(espUSART, "AT+CWJAP=\"netbo-1\",\"asmassassina\"\n", strlen("AT+CWJAP=\"netbo-1\",\"asmassassina\"\n"));
-	uart_read(espUSART, buf, ri);
-	uart_write(myUSART, buf, strlen(buf));
-
 	// prompt
-	uart_write(myUSART, "# ", strlen("# "));
+	uart_write(myUSART, "\r\n# ", strlen("\r\n# "));
 
+        cmdi = 0;
 	// Infinite loop
 	while (1)
 	{
-		/*
-		// read
-		ri = uart_read(myUSART, buf, nbyte);
+		if(mode_conf_wifi) 
+                {
+		
+                    // read
+                    ri = uart_read(myUSART, buf, nbyte);
 
-		if(ri > 0) {
+                    if(ri > 0) {
 
-			for(int j=0; j<ri; j++, cmdi++)
-				cmd[cmdi] = buf[j];
+                            for(int j=0; j<ri; j++, cmdi++)
+                                    cmd[cmdi] = buf[j];
 
-			// \r = 0x0A, \n = 0x0D
-			if(buf[ri-1] == '\r') {
+                            // \r = 0x0A, \n = 0x0D
+                            if(buf[ri-1] == '\r') {
 
-				//echo it back!!
-				ri++;
-				buf[ri-1] = '\n';
-				uart_write(myUSART, buf, ri);
+                                    //echo it back!!
+                                    ri++;
+                                    buf[ri-1] = '\n';
+                                    uart_write(myUSART, buf, ri);
 
-				// replace \r or \n with string end
-				cmd[cmdi-1] = '\0';
+                                    // replace \r or \n with string end
+                                    cmd[cmdi-1] = '\0';
 
-				cmd_feedback[0] = '\0';
-				if(strcmp(cmd, "PLAY") == 0) {
-					strcpy(cmd_feedback,"Received PLAY :) \n\r");
-				}
-				else if(strcmp(cmd, "PAUSE") == 0) {
-					strcpy(cmd_feedback,"Received PAUSE :) \n\r");
-				}
-				else if(strcmp(cmd, "STOP") == 0) {
-					strcpy(cmd_feedback,"Received STOP :) \n\r");
-				}
-				else if(strcmp(cmd, "RESET") == 0) {
-					strcpy(cmd_feedback,"Received RESET :) \n\r");
-				}
+                                    cmd_feedback[0] = '\0';
+                                    //TODO SAVE NET & PWD
+                                    if(strcmp(cmd, "WIFI_NET") == 0) {
+                                            strcpy(cmd_feedback,"Received WIFI_NET :) \n\r");
+                                    }
+                                    else if(strcmp(cmd, "WIFI_PWD") == 0) {
+                                            strcpy(cmd_feedback,"Received WIFI_PWD :) \n\r");
+                                            
+                                            //TODO - run initWifi(); with saved NET and PWD
+                                    }
 
-				if(strlen(cmd) > 0)
-					uart_write(myUSART, cmd_feedback, strlen(cmd_feedback));
+                                    if(strlen(cmd) > 0)
+                                            uart_write(myUSART, cmd_feedback, strlen(cmd_feedback));
 
-				// clean cmd
-				cmd[0] = '\0';
-				cmdi = 0;
+                                    // clean cmd
+                                    cmd[0] = '\0';
+                                    cmdi = 0;
 
-				// prompt
-				uart_write(myUSART, "# ", strlen("# "));
-			}
-			else {
-				//echo it back!!
-				uart_write(myUSART, buf, ri);
-			}
-		}
-		*/
+                                    // prompt
+                                    uart_write(myUSART, "# ", strlen("# "));
+                            }
+                            else {
+                                    //echo it back!!
+                                    uart_write(myUSART, buf, ri);
+                            }
+                    
+                    }
+              }
 	}
 	uart_close(myUSART);
 }
 
+
+void initWifi() 
+{
+        // open esp8266 wifi uart	
+	uart_open(espUSART, 115200, 0);
+	//uint32_t delay=1000000;
+	
+	// AT
+	uart_write(espUSART, "AT\n\r", strlen("AT\n\r"));
+	//delay=4000000000; while(delay) delay--;
+	/*ri = uart_read(espUSART, buf, nbyte);
+	tmp[0] = '\0';
+        itoa(tmp, 'd', ri);
+	uart_write(myUSART, tmp, strlen(tmp));*/
+	uart_write(myUSART, buf, strlen(buf));
+
+	// fw version
+	//   it will output the firmware revision number similar to: 0018000902-AI03.
+	//   000902 means firmware version 0.9.2, 0018 is the version level of the AT command support.
+	uart_write(espUSART, "AT+GMR\n\r", strlen("AT+GMR\n\r"));
+	//delay=4000000000; while(delay) delay--;
+	ri = uart_read(espUSART, buf, nbyte);
+	uart_write(myUSART, buf, strlen(buf));
+
+	// Access Point and STAtion
+	uart_write(espUSART, "AT+CWMODE=3\n\r", strlen("AT+CWMODE=3\n\r"));
+	ri = uart_read(espUSART, buf, nbyte);
+	uart_write(myUSART, buf, strlen(buf));
+
+	// List Access Points
+	//uart_write(espUSART, "AT+CWLAP\n\r", strlen("AT+CWLAP\n\r"));
+	//ri = uart_read(espUSART, buf, nbyte);
+        //uart_write(myUSART, buf, strlen(buf));
+
+	// Join an Access Point
+	uart_write(espUSART, "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\n\r", strlen( "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\n\r" ));
+	/*strcpy(out,"AT+CWJAP=\"");
+	strcat(out, WIFI_NET);
+	strcat(out, "\",\"");
+	strcat(out, WIFI_PWD);
+	strcat(out, "\"\n\r");
+	uart_write(espUSART, out, strlen(out)); */
+	ri = uart_read(espUSART, buf, nbyte);
+        uart_write(myUSART, buf, strlen(buf));
+    
+}
 
 
 
@@ -387,20 +419,23 @@ void TIM3_IRQHandler (void)
 			//trace_printf("HUM = %d, TEMP = %d° C, GAS = %d \n", HUM_h,  TEMP_h,  ain);
 			//strcpy(out,"OUT :) \n\r");
 			//uart_write(myUSART, out, strlen(out));
-			strcpy(out,"HUM = ");
-			tmp[0] = '\0';
-			itoa(tmp, 'd', HUM_h); //get_dec_str(tmp, 2, HUM_h);
-			strcat(out, tmp);
-			strcat(out, ", TEMP = ");
-			tmp[0] = '\0';
-			itoa(tmp, 'd', TEMP_h); //get_dec_str(tmp, 2,TEMP_h);
-			strcat(out, tmp);
-			strcat(out, ", GAS = ");
-			tmp[0] = '\0';
-			itoa(tmp, 'd', ain); //get_dec_str(tmp, 4, ain);;
-			strcat(out, tmp);
-			strcat(out, "\r\n");
-			uart_write(myUSART, out, strlen(out));
+			if(!mode_conf_wifi)
+			{
+				strcpy(out,"HUM = ");
+				tmp[0] = '\0';
+				itoa(tmp, 'd', HUM_h); //get_dec_str(tmp, 2, HUM_h);
+				strcat(out, tmp);
+				strcat(out, ", TEMP = ");
+				tmp[0] = '\0';
+				itoa(tmp, 'd', TEMP_h); //get_dec_str(tmp, 2,TEMP_h);
+				strcat(out, tmp);
+				strcat(out, ", GAS = ");
+				tmp[0] = '\0';
+				itoa(tmp, 'd', ain); //get_dec_str(tmp, 4, ain);;
+				strcat(out, tmp);
+				strcat(out, "\r\n");
+				uart_write(myUSART, out, strlen(out));
+			}
 		}
 		else if(ticks == 2000 - 18) {
 			ticks = 0;

@@ -7,12 +7,13 @@
 #include "uart.h"
 
 int RxOverflow = 0;
+int RxOverflow2 = 0;
 
 // TxPrimed is used to signal that Tx send buffer needs to be primed
 // to commence sending -- it is cleared by the IRQ, set by uart_write
 
 static int TxPrimed = 0;
-
+static int TxPrimed2 = 0;
 
 /////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////
@@ -215,11 +216,11 @@ int  uart_open (uint8_t uart, uint32_t baud, uint32_t flags)
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 
-    GPIO_PinRemapConfig(GPIO_Remap_USART2, DISABLE);
+    //GPIO_PinRemapConfig(GPIO_Remap_USART2, ENABLE);
     // Configure TX pin
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
     // Configure RX pin
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
@@ -236,9 +237,9 @@ int  uart_open (uint8_t uart, uint32_t baud, uint32_t flags)
     USART_InitStructure.USART_Mode  = USART_Mode_Rx | USART_Mode_Tx;
     USART_Init(USART2, &USART_InitStructure);
     // Enable RX Interrupt.  TX interrupt enabled in send routine
-    USART_ClearITPendingBit(USART2, USART_IT_RXNE);
+    //USART_ClearITPendingBit(USART2, USART_IT_RXNE);
     //disable Transmit Data Register empty interrupt
-    USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
+    USART_ITConfig(USART2, USART_IT_TXE, ENABLE);
     //enable Receive Data register not empty interrupt
     USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);
     InitQueue(&UART2_RXq);
@@ -296,6 +297,7 @@ void USART1_IRQHandler(void)
 			TxPrimed = 0;
 		}
 	}
+
 }
 
 void USART2_IRQHandler(void)
@@ -308,7 +310,7 @@ void USART2_IRQHandler(void)
 		// buffer the data (or toss it if there's no room // Flow control is supposed to prevent this
 		data = USART_ReceiveData(USART2) & 0xff;
 		if (!Enqueue(&UART2_RXq, &data, 1))
-			RxOverflow = 1;
+			RxOverflow2 = 1;
 	}
 	if(USART_GetITStatus(USART2, USART_IT_TXE) != RESET)
 	{
@@ -321,7 +323,7 @@ void USART2_IRQHandler(void)
 			// if we have nothing to send, disable the interrupt
 			// and wait for a kick
 			USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
-			TxPrimed = 0;
+			TxPrimed2 = 0;
 		}
 	}
 }
@@ -355,9 +357,9 @@ uint16_t uart_write(uint8_t uart, const uint8_t *buf, uint16_t nbyte)
 
 		// if we added something and the Transmitter isn't working
 		// give it a kick by turning on the buffer empty interrupt
-		if (!TxPrimed)
+		if (!TxPrimed2)
 		{
-			TxPrimed = 1;
+			TxPrimed2 = 1;
 
 			// This implementation guarantees that USART_IT_Config
 			// is not called simultaneously in the interrupt handler and here.

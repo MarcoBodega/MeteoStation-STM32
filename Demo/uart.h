@@ -4,7 +4,7 @@
 
 #include <stm32f10x_usart.h>
 
-#define QUEUE_SIZE 64
+#define QUEUE_SIZE 128
 # define HIGH_WATER ( QUEUE_SIZE - 6)
 
 //#define HWFLOWCTRL
