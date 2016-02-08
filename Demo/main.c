@@ -44,8 +44,8 @@
 #define myUSART 1
 #define espUSART 2
 
-#define WIFI_NET "MYNET"
-#define WIFI_PWD "MYPWD"
+#define WIFI_NET ""
+#define WIFI_PWD ""
 
 uint8_t buf[QUEUE_SIZE];
 uint8_t nbyte = 32; //size_t
@@ -253,45 +253,78 @@ void initWifi()
 {
         // open esp8266 wifi uart	
 	uart_open(espUSART, 115200, 0);
-	//uint32_t delay=1000000;
+	uint32_t delay=1000000;
 	
+        /*
 	// AT
-	uart_write(espUSART, "AT\n\r", strlen("AT\n\r"));
-	//delay=4000000000; while(delay) delay--;
-	/*ri = uart_read(espUSART, buf, nbyte);
-	tmp[0] = '\0';
-        itoa(tmp, 'd', ri);
-	uart_write(myUSART, tmp, strlen(tmp));*/
-	uart_write(myUSART, buf, strlen(buf));
+	uart_write(espUSART, "AT\r\n", strlen("AT\r\n"));
+	delay=8000000; while(delay) delay--;
+	ri = uart_read(espUSART, buf, nbyte);
+        if(ri > 0) {
+            uart_write(myUSART, buf, strlen(buf));
+        }
+        else
+            uart_write(myUSART, "Failed AT\n\r", strlen("Failed AT\n\r"));
 
 	// fw version
 	//   it will output the firmware revision number similar to: 0018000902-AI03.
 	//   000902 means firmware version 0.9.2, 0018 is the version level of the AT command support.
-	uart_write(espUSART, "AT+GMR\n\r", strlen("AT+GMR\n\r"));
-	//delay=4000000000; while(delay) delay--;
+	uart_write(espUSART, "AT+GMR\r\n", strlen("AT+GMR\r\n"));
+	delay=8000000; while(delay) delay--;
 	ri = uart_read(espUSART, buf, nbyte);
-	uart_write(myUSART, buf, strlen(buf));
+        if(ri > 0) {
+            uart_write(myUSART, buf, strlen(buf));
+        }
+        else
+            uart_write(myUSART, "Failed AT+GMR\n\r", strlen("Failed AT+GMR\n\r"));
 
+        delay=4000000; while(delay) delay--;
+        */
+          
+        /*
 	// Access Point and STAtion
-	uart_write(espUSART, "AT+CWMODE=3\n\r", strlen("AT+CWMODE=3\n\r"));
+	uart_write(espUSART, "AT+CWMODE=3\r\n", strlen("AT+CWMODE=3\r\n"));
+        delay=8000000; while(delay) delay--;
 	ri = uart_read(espUSART, buf, nbyte);
-	uart_write(myUSART, buf, strlen(buf));
+	if(ri > 0) {
+            uart_write(myUSART, buf, strlen(buf));
+        }
+        else
+            uart_write(myUSART, "Failed AT+CWMODE=3\n\r", strlen("Failed AT+CWMODE=3\n\r"));
 
+        delay=4000000; while(delay) delay--;
+        
+        
 	// List Access Points
 	//uart_write(espUSART, "AT+CWLAP\n\r", strlen("AT+CWLAP\n\r"));
 	//ri = uart_read(espUSART, buf, nbyte);
         //uart_write(myUSART, buf, strlen(buf));
 
 	// Join an Access Point
-	uart_write(espUSART, "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\n\r", strlen( "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\n\r" ));
-	/*strcpy(out,"AT+CWJAP=\"");
-	strcat(out, WIFI_NET);
-	strcat(out, "\",\"");
-	strcat(out, WIFI_PWD);
-	strcat(out, "\"\n\r");
-	uart_write(espUSART, out, strlen(out)); */
+	uart_write(espUSART, "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\r\n", strlen( "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\r\n" ));
+        delay=12000000; while(delay) delay--;
 	ri = uart_read(espUSART, buf, nbyte);
-        uart_write(myUSART, buf, strlen(buf));
+	if(ri > 0) {
+            uart_write(myUSART, buf, strlen(buf));
+        }
+        else
+            uart_write(myUSART, "Failed AT+CWJAP\n\r", strlen("Failed AT+CWJAP\n\r"));
+
+        delay=16000000; while(delay) delay--;
+        */
+        
+	// Get IP
+	uart_write(espUSART, "AT+CIFSR\r\n", strlen("AT+CIFSR\r\n"));
+        delay=160000000; while(delay) delay--;
+        ri = uart_read(espUSART, buf, nbyte);
+        if(ri > 0) {
+            uart_write(myUSART, buf, strlen(buf));
+        }
+        else
+            uart_write(myUSART, "Failed AT+CIFSR\n\r", strlen("Failed AT+CIFSR\n\r"));
+        
+        delay=160000000; while(delay) delay--;
+
     
 }
 
