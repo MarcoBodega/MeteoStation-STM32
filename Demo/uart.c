@@ -133,7 +133,7 @@ int  uart_open (uint8_t uart, uint32_t baud, uint32_t flags)
     GPIO_PinRemapConfig(GPIO_Remap_USART1, DISABLE);
 
     // DEBUG
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
