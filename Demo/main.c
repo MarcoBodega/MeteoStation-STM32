@@ -40,12 +40,21 @@
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-//#define myUSART USART1
+// USART CONF
 #define myUSART 1
 #define espUSART 2
 
-#define WIFI_NET "TODO"
-#define WIFI_PWD "TODO"
+// WIFI CONF
+#define WIFI_NET ""
+#define WIFI_PWD ""
+
+// THINGSPEAK CONF
+#define THGSPK_APIKEY ""
+#define THGSPK_KEY1 "field1" //"temp"
+#define THGSPK_KEY2 "field2" //"hum"
+#define THGSPK_KEY3 "field3" //"mq2"
+#define THGSPK_CNT_UPDATE 10
+#define THGSPK_PORT "80" //"443"
 
 uint8_t buf[QUEUE_SIZE];
 uint8_t nbyte = 32; //size_t
@@ -55,8 +64,14 @@ uint8_t cmdi; //size_t
 
 uint8_t cmd_feedback[32];
 
+uint8_t out_esp[80];
+uint8_t out_size[5];
 uint8_t out[32];
-uint8_t tmp[5];
+uint8_t tmp[16];
+
+uint8_t temp_last[5];
+uint8_t hum_last[5];
+uint8_t mq2_last[5];
 
 uint32_t ticks = 0;
 GPIO_InitTypeDef GPIO_InitStructure ;
@@ -73,13 +88,21 @@ typedef enum {
 	AT_CWJAP,
 	AT_CIFSR,
 	AT_DONE,
-	AT_ERROR
+	AT_READY2SND,
+	AT_ERROR,
+	AT_THGSPK_CON,
+	AT_THGSPK_SIZE,
+	AT_THGSPK_PAYLD,
 } AT_STATE; 
 
 uint8_t mode_conf_wifi_boot = 0; 
 uint8_t mode_conf_wifi_user = 0; 
+uint8_t mode_wifi_working = 0;
 AT_STATE wifi_state;
 void initWifi();
+void prepSendWifi() ;
+uint8_t count_thgspk = 0;
+uint8_t mode_wifi_already_conn = 0;
 
 // avoid newlib
 int strlen(char *s);
@@ -212,7 +235,7 @@ int main(int argc, char* argv[])
 	while (1)
 	{
 
-		if(mode_conf_wifi_boot) 
+		if(mode_conf_wifi_boot || mode_wifi_working) 
 		{
 		    // read
 		    ri = uart_read(espUSART, buf, nbyte);
@@ -237,6 +260,9 @@ int main(int argc, char* argv[])
 						uart_write(myUSART, "esp8266 ready\r\n", strlen("esp8266 ready\r\n"));
 						wifi_state = AT_READY;
 						uart_write(espUSART, "AT\r\n", strlen("AT\r\n"));
+					}
+					if(strcmp(cmd, "CHECK FAIL!!!") == 0) {
+						initWifi() ;
 					}
 
                     if(strcmp(cmd, "OK") == 0) {
@@ -274,26 +300,84 @@ int main(int argc, char* argv[])
 							case AT_CIFSR: 
 								uart_write(myUSART, "WIFI configuration OK\r\n", strlen("WIFI configuration OK\r\n"));
 								mode_conf_wifi_boot = 0;
+								mode_wifi_working = 1;
+								wifi_state = AT_DONE;
+							break;	
+							// WIFI configured now..
+							// entry point of data sending/receiving
+							// here somewhere somebody issued a AT+CIPSTART to talk to ThingSpeak!!
+							case AT_DONE: 
+							case AT_READY2SND:
+								prepSendWifi() ;
+							break;
+							case AT_THGSPK_CON: 
+								uart_write(myUSART, "AT+CIPSEND OK\r\n", strlen("AT+CIPSEND OK\r\n"));
+								wifi_state = AT_THGSPK_SIZE;
+								// we prepare out before...
+								uart_write(myUSART, out_esp, strlen(out_esp));
+								uart_write(espUSART, out_esp, strlen(out_esp));
+							break;
+							case AT_THGSPK_SIZE: 
+								uart_write(myUSART, "GET /update? OK\r\n", strlen("GET /update? OK\r\n"));
+								wifi_state = AT_THGSPK_PAYLD;
+								//DONE IT
+							case AT_THGSPK_PAYLD: 
+								// be ready to POST next data!
 								wifi_state = AT_DONE;
 							break;
+							
                     	}
-
-                    	if(strcmp(cmd, "WIFI CONNECTED") == 0) {
-                    		//TODO
-                    		mode_conf_wifi_boot = 0;
-                    	}
-						if(strcmp(cmd, "WIFI GOT IP") == 0) {
-                    		//TODO
-                    		mode_conf_wifi_boot = 0;
-                    	}
-
-
                     }
-                    else if(strcmp(cmd, "ERROR") == 0) {
+                    /*
+                	if(strcmp(cmd, "WIFI CONNECTED") == 0) {
+                		//TODO
+                		mode_conf_wifi_boot = 0;
+                	}
+					if(strcmp(cmd, "WIFI GOT IP") == 0) {
+                		//TODO
+                		mode_conf_wifi_boot = 0;
+                	}
+                	if(strcmp(cmd, "CONNECT") == 0) {
+                		//TODO
+                	}
+                	if(strcmp(cmd, "Connection: close") == 0) {
+                		wifi_state = AT_DONE;
+                	}
+
+                	if(strcmp(cmd, "Linked") == 0) {
+                		//TODO
+                	}
+                	*/
+                	if(strcmp(cmd, "ALREADY CONNECTED") == 0) {
+                		uart_write(myUSART, "Got ALREADY CONNECTED from esp8266\r\n", strlen("Got ALREADY CONNECTED from esp8266\r\n"));
+                		mode_wifi_already_conn = 1;
+                		wifi_state = AT_READY2SND;
+                	}
+                	if(strcmp(cmd, "SEND OK") == 0) {
+						//wifi_state = AT_READY2SND;
+						// since we have always a CLOSED after (with no \r\n)
+						wifi_state = AT_DONE;
+					}
+					if(strcmp(cmd, "CLOSED") == 0) {
+						uart_write(myUSART, "Got CLOSED from esp8266\r\n", strlen("Got CLOSED from esp8266\r\n"));
+                		// no \r\n.. not sure it works
+                		//wifi_state = AT_READY2SND;
+                		if(mode_wifi_already_conn == 1) 
+                			wifi_state = AT_READY2SND;
+                		else
+                			wifi_state = AT_DONE;
+                		mode_wifi_already_conn = 0;
+                	}
+                    if(strcmp(cmd, "ERROR") == 0) {
                             uart_write(myUSART, "Got ERROR from esp8266\r\n", strlen("Got ERROR from esp8266\r\n"));      
                             wifi_state = AT_ERROR;
                             mode_conf_wifi_boot = 0;
                             // REBOOT?
+                            //initWifi();
+                            //DISCONNECT!!
+                		    //uart_write(espUSART, "\r\n\r\n", strlen("\r\n\r\n"));
+
+                		    wifi_state = AT_DONE;
                     }	                    
 
                     // clean cmd
@@ -365,87 +449,37 @@ void initWifi()
 	uart_open(espUSART, 115200, 0);
 
     GPIO_WriteBit(GPIOA, GPIO_Pin_0, Bit_RESET);  // <-- TEST
-	uint32_t delay=1000;
+	uint32_t delay=15000;
 	while(delay) delay--;
     GPIO_WriteBit(GPIOA, GPIO_Pin_0, Bit_SET);  // <-- TEST
 
-
-	/*
-	uint32_t delay=1000000;
- 	{	
-	// AT
-	uart_write(espUSART, "AT\r\n", strlen("AT\r\n"));
-	delay=8000000; while(delay) delay--;
-	ri = uart_read(espUSART, buf, nbyte);
-        if(ri > 0) {
-            uart_write(myUSART, buf, strlen(buf));
-        }
-        else
-            uart_write(myUSART, "Failed AT\n\r", strlen("Failed AT\n\r"));
-
-	// fw version
-	//   it will output the firmware revision number similar to: 0018000902-AI03.
-	//   000902 means firmware version 0.9.2, 0018 is the version level of the AT command support.
-	uart_write(espUSART, "AT+GMR\r\n", strlen("AT+GMR\r\n"));
-	delay=8000000; while(delay) delay--;
-	ri = uart_read(espUSART, buf, nbyte);
-        if(ri > 0) {
-            uart_write(myUSART, buf, strlen(buf));
-        }
-        else
-            uart_write(myUSART, "Failed AT+GMR\n\r", strlen("Failed AT+GMR\n\r"));
-
-        delay=4000000; while(delay) delay--;
-          
-	// Access Point and STAtion
-	uart_write(espUSART, "AT+CWMODE=3\r\n", strlen("AT+CWMODE=3\r\n"));
-        delay=8000000; while(delay) delay--;
-	ri = uart_read(espUSART, buf, nbyte);
-	if(ri > 0) {
-            uart_write(myUSART, buf, strlen(buf));
-        }
-        else
-            uart_write(myUSART, "Failed AT+CWMODE=3\n\r", strlen("Failed AT+CWMODE=3\n\r"));
-
-        delay=4000000; while(delay) delay--;
-        
-        
-	// List Access Points
-	//uart_write(espUSART, "AT+CWLAP\n\r", strlen("AT+CWLAP\n\r"));
-	//ri = uart_read(espUSART, buf, nbyte);
-        //uart_write(myUSART, buf, strlen(buf));
-
-	// Join an Access Point
-	uart_write(espUSART, "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\r\n", strlen( "AT+CWJAP=\"" WIFI_NET "\",\"" WIFI_PWD "\"\r\n" ));
-        delay=12000000; while(delay) delay--;
-	ri = uart_read(espUSART, buf, nbyte);
-	if(ri > 0) {
-            uart_write(myUSART, buf, strlen(buf));
-        }
-        else
-            uart_write(myUSART, "Failed AT+CWJAP\n\r", strlen("Failed AT+CWJAP\n\r"));
-
-        delay=16000000; while(delay) delay--;
-
-        
-	// Get IP
-	uart_write(espUSART, "AT+CIFSR\r\n", strlen("AT+CIFSR\r\n"));
-        delay=160000000; while(delay) delay--;
-        ri = uart_read(espUSART, buf, nbyte);
-        if(ri > 0) {
-            uart_write(myUSART, buf, strlen(buf));
-        }
-        else
-            uart_write(myUSART, "Failed AT+CIFSR\n\r", strlen("Failed AT+CIFSR\n\r"));
-        
-        delay=160000000; while(delay) delay--;
-	}
-	*/
-    
-    
 }
 
 
+void prepSendWifi() 
+{
+	uart_write(myUSART, "AT+CIPSTART OK\r\n", strlen("AT+CIPSTART OK\r\n"));
+	wifi_state = AT_THGSPK_CON;
+	// prepare string to send
+		//uart_write(espUSART, "GET /update?api_key=" THGSPK_APIKEY "&" THGSPK_KEY1 "=va1&" THGSPK_KEY2 "=va2&" THGSPK_KEY3 "=val3\r\n", strlen("GET /update?api_key=" THGSPK_APIKEY "&" THGSPK_KEY1 "=va1&" THGSPK_KEY2 "=val2&" THGSPK_KEY3 "=val3\r\n"));
+	out_esp[0] = '\0';
+	strcpy(out_esp, "GET /update?api_key=" THGSPK_APIKEY "&" THGSPK_KEY1 "=");
+	strcat(out_esp, temp_last);
+	strcat(out_esp, "&" THGSPK_KEY2 "=");
+	strcat(out_esp, hum_last);
+	strcat(out_esp, "&" THGSPK_KEY3 "=");
+	strcat(out_esp, mq2_last);
+	strcat(out_esp, "\r\n");
+	tmp[0] = '\0';
+	strcpy(tmp, "AT+CIPSEND=");
+	out_size[0] = '\0';
+	itoa(out_size, 'd', strlen(out_esp)); 
+	strcat(tmp, out_size);
+	strcat(tmp, "\r\n");
+	uart_write(espUSART, tmp, strlen(tmp));
+	//uart_write(espUSART, "AT+CIPSEND=70\r\n", strlen("AT+CIPSEND=70\r\n"));
+
+}
 
 
 
@@ -469,7 +503,7 @@ uint8_t TEMP_h;
 uint8_t TEMP_l;
 uint8_t PARITY;
 
-uint16_t ain = 0;
+uint16_t mq2 = 0;
 
 void TIM3_IRQHandler (void)
 {
@@ -564,28 +598,44 @@ void TIM3_IRQHandler (void)
 			TIM_ITConfig(TIM3, TIM_IT_CC1, ENABLE);
 		}
 		else if(ticks == 1000) {
+
+			count_thgspk++;
+
+
 			//trace_printf("HUM_h = %d, HUM_l = %d, TEMP_h = %d, TEMP_l = %d, PARITY = %d \n", HUM_h, HUM_l, TEMP_h, TEMP_l, PARITY);
 			//trace_printf("HUM = %d, TEMP = %d° C, PARITY = %d \n", HUM_h,  TEMP_h,  PARITY);
-			//trace_printf("HUM = %d, TEMP = %d° C, GAS = %d \n", HUM_h,  TEMP_h,  ain);
+			//trace_printf("HUM = %d, TEMP = %d° C, GAS = %d \n", HUM_h,  TEMP_h,  mq2);
 			//strcpy(out,"OUT :) \n\r");
 			//uart_write(myUSART, out, strlen(out));
 			if(!mode_conf_wifi_boot && !mode_conf_wifi_user)
 			{
+				out[0] = '\0';
 				strcpy(out,"HUM = ");
-				tmp[0] = '\0';
-				itoa(tmp, 'd', HUM_h); //get_dec_str(tmp, 2, HUM_h);
-				strcat(out, tmp);
+				hum_last[0] = '\0';
+				itoa(hum_last, 'd', HUM_h); //get_dec_str(tmp, 2, HUM_h);
+				strcat(out, hum_last);
 				strcat(out, ", TEMP = ");
-				tmp[0] = '\0';
-				itoa(tmp, 'd', TEMP_h); //get_dec_str(tmp, 2,TEMP_h);
-				strcat(out, tmp);
+				temp_last[0] = '\0';
+				itoa(temp_last, 'd', TEMP_h); //get_dec_str(tmp, 2,TEMP_h);
+				strcat(out, temp_last);
 				strcat(out, ", GAS = ");
-				tmp[0] = '\0';
-				itoa(tmp, 'd', ain); //get_dec_str(tmp, 4, ain);;
-				strcat(out, tmp);
+				mq2_last[0] = '\0';
+				itoa(mq2_last, 'd', mq2); //get_dec_str(tmp, 4, mq2);;
+				strcat(out, mq2_last);
 				strcat(out, "\r\n");
 				uart_write(myUSART, out, strlen(out));
+
+				// uodate ThingSpeak
+				if(count_thgspk >= THGSPK_CNT_UPDATE) {
+					if(wifi_state == AT_DONE)
+						 uart_write(espUSART, "AT+CIPSTART=\"TCP\",\"api.thingspeak.com\"," THGSPK_PORT "\r\n", strlen("AT+CIPSTART=\"TCP\",\"api.thingspeak.com\"," THGSPK_PORT "\r\n"));
+					else if(wifi_state == AT_READY2SND)
+						prepSendWifi() ;
+				}
 			}
+
+			if(count_thgspk >= THGSPK_CNT_UPDATE)
+				count_thgspk = 0;
 		}
 		else if(ticks == 2000 - 18) {
 			ticks = 0;
@@ -635,7 +685,7 @@ void ADC1_IRQHandler (void)
 	//GPIO_WriteBit(GPIOC, GPIO_Pin_10, Bit_SET);  // <-- TEST
 
 	// read ADC DR
-	ain = ADC_GetConversionValue (ADC1);
+	mq2 = ADC_GetConversionValue (ADC1);
 	ADC_ClearITPendingBit (ADC1 , ADC_IT_EOC );
 
 	//GPIO_WriteBit(GPIOC, GPIO_Pin_10, Bit_RESET);  // <-- TEST
